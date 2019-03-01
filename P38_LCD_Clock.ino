@@ -46,19 +46,27 @@
 #include <SPI.h>
 #include <Fonts/FreeSerifBold24pt7b.h>
 #include <Fonts/FreeSerif9pt7b.h>
+#include <DS3231.h>
+#include <Wire.h>
 
+#define D0 16
+#define D1 5
+#define D2 4
 #define D3 0
 #define D4 2
 #define D5 14
+#define D6 12
 #define D7 13
 #define D8 15
-#define D2 4
+
+
+
 #define TFT_CS D8
 #define TFT_RST D4
 #define TFT_DC D3
 #define TFT_SCLK D5
 #define TFT_MOSI D7
-#define BL D2 
+#define BL D6 
 
 
 #define  BLACK   0x0000
@@ -74,6 +82,7 @@
 
 uint16_t FG_COLOR;
 uint16_t BG_COLOR;
+DS3231 Clock;
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST); // defines the comms object
 
@@ -322,6 +331,8 @@ void setup(void) {
  
   tft.fillScreen(BG_COLOR);
   tft.drawBitmap(0, 0, landrover, 128, 160, FG_COLOR );
+
+  
   
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass); 
