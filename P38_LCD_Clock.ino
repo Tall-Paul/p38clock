@@ -46,8 +46,9 @@
 #include <SPI.h>
 #include <Fonts/FreeSerifBold24pt7b.h>
 #include <Fonts/FreeSerif9pt7b.h>
-#include <DS3231.h>
 #include <Wire.h>
+#include <RTClib.h>
+
 
 #define D0 16
 #define D1 5
@@ -82,7 +83,10 @@
 
 uint16_t FG_COLOR;
 uint16_t BG_COLOR;
-DS3231 Clock;
+RTC_DS3231 Clock;
+bool Century=false;
+bool h12 = false;
+bool PM = false;
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST); // defines the comms object
 
@@ -321,7 +325,7 @@ word ConvertRGB( byte R, byte G, byte B)
 
 
 
-void setup(void) {
+void setup(void) { 
   FG_COLOR = 0xFFFF;
   BG_COLOR = ConvertRGB(0x03,0x36,0x05);
   sr = r;
@@ -332,56 +336,102 @@ void setup(void) {
   tft.fillScreen(BG_COLOR);
   tft.drawBitmap(0, 0, landrover, 128, 160, FG_COLOR );
 
-  
-  
+  //try to connect to wifi for 5 seconds
+  /*
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, pass); 
   Serial.begin(115200); 
-  while (WiFi.status() != WL_CONNECTED) {
+  int i = 0;
+  while (WiFi.status() != WL_CONNECTED && i < 10) {
     delay(500);
     Serial.print(".");
+    i++;
   }
-  timeClient.begin();
+  if (WiFi.status() == WL_CONNECTED){
+    //setTime  
+    setTime();    
+  }
+  */
+   if (!Clock.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1);
+  }
+
+  if (Clock.lostPower()) {
+    Serial.println("RTC lost power, lets set the time!");
+    // following line sets the RTC to the date & time this sketch was compiled
+    Clock.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // This line sets the RTC with an explicit date & time, for example to set
+    // January 21, 2014 at 3am you would call:
+    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+  }
+  
   tft.fillScreen(BG_COLOR);
   //tft.drawCircle(64, 105, 50, FG_COLOR );
   //tft.drawBitmap(88, 120, landythumb, 40, 40, FG_COLOR);
   pinMode(BL, OUTPUT); 
+ 
   
 }
 
-
-
-void readTime(void){
+void setTime(void){
+  timeClient.begin();
   while(!timeClient.update()) {
     timeClient.forceUpdate();
   }
   time_t rawtime = timeClient.getEpochTime();
-   struct tm * ti;
-   ti = localtime (&rawtime);
+  struct tm * ti;
+  ti = localtime (&rawtime);
 
-   uint16_t year = ti->tm_year + 1900;
+  uint16_t year = ti->tm_year;
+ 
+
+  uint8_t month = ti->tm_mon + 1;
+
+
+  uint8_t day = ti->tm_mday;
+ 
+
+  uint8_t hour = ti->tm_hour;
+
+
+  minutes = ti->tm_min;  
+ 
+
+  seconds = ti->tm_sec;
+
+  Clock.adjust(DateTime(year,month,day,hour,minutes,seconds));
+  
+
+}
+
+void readTime(void){
+   DateTime now = Clock.now();
+   Serial.print("Reading time \r\n"); 
+   uint16_t year = now.year();
    String yearStr = String(year);
 
-   uint8_t month = ti->tm_mon + 1;
+   uint8_t month = now.month();
    String monthStr = month < 10 ? "0" + String(month) : String(month);
 
-   uint8_t day = ti->tm_mday;
+   uint8_t day = now.day();
    String dayStr = day < 10 ? "0" + String(day) : String(day);
 
-   uint8_t hour = ti->tm_hour;
+   uint8_t hour = now.hour();
    hourAnalog = hour;
    if (hourAnalog > 12)
       hourAnalog = hourAnalog - 12;
    String hoursStr = hour < 10 ? "0" + String(hour) : String(hour);
 
-   minutes = ti->tm_min;
+   minutes = now.minute();
    String minutesStr = minutes < 10 ? "0" + String(minutes) : String(minutes);
 
-   seconds = ti->tm_sec;
+   seconds = now.second();
    String secondStr = seconds < 10 ? "0" + String(seconds) : String(seconds);
 
    timeStr = hoursStr + ":" + minutesStr;
    dateStr = dayStr + "/" + monthStr;
+   Serial.print(timeStr + " " +dateStr +"\r\n");
 }
 
 void drawSegment(int x, int y, int r1, int r2, float a, int col)
@@ -422,6 +472,7 @@ void drawAnalogueTime()
 
 
 void updateTime(){
+  Serial.print("updateTime \r\n");
   tft.fillScreen(BG_COLOR);
   tft.setFont(&FreeSerifBold24pt7b);    
   tft.setCursor(8,40);
@@ -436,6 +487,7 @@ void updateTime(){
 
 
 void updateDisplay(){
+  Serial.print("updateDisplay");
   if (timeStr != lastTimeStr){
     updateTime();
     lastTimeStr = timeStr;
@@ -443,17 +495,11 @@ void updateDisplay(){
 }
 
 
-uint8_t m = 24;
-uint8_t i = 10;
-
 void loop(void) {
-  if (i == 10){
-    readTime();
-    updateDisplay();
-    i = 0;
-  }
-  i++;
-  delay(1000);
   analogWrite(BL,analogRead(A0)/4);
+  readTime();
+  updateDisplay();
+  delay(1000);
+  
 }
 
