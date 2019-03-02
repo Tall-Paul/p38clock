@@ -91,8 +91,8 @@ bool PM = false;
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST); // defines the comms object
 
 
-char ssid[] = "PrettyFlyForAWifi";  //  your network SSID (name)
-char pass[] = "gy3UwuaJPcAv";       // your network password
+char ssid[] = "";  //  your network SSID (name)
+char pass[] = "";       // your network password
 
 String dateStr;
 String lastDateStr;
