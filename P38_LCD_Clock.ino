@@ -37,18 +37,20 @@
 */
 
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <NTPClient.h>
-#include <WiFiUdp.h>
-#include <time.h>
-#include <Adafruit_GFX.h>    // Core graphics library
-#include <Adafruit_ST7735.h> // Hardware-specific library for ST7735
-#include <SPI.h>
-#include <Fonts/FreeSerifBold24pt7b.h>
-#include <Fonts/FreeSerif9pt7b.h>
-#include <Wire.h>
-#include <RTClib.h>
 
+#include <time.h>
+
+#include <SPI.h>
+
+#include <Wire.h>
+
+
+
+
+#define RTC_ENABLE false //set to true if using real time clock module
+#define LCD_18 false //set to true if using 1.8" LCD module
+#define LCD_22 true //set to true if using 2.2" LCD module
+#define WIFI_ENABLED true
 
 #define D0 16
 #define D1 5
@@ -61,13 +63,47 @@
 #define D8 15
 
 
+#if LCD_18 == true
+  #include <Adafruit_GFX.h>    // Core graphics library
+  #include <Adafruit_ST7735.h> // Hardware-specific library for ST7735
+  #include <Fonts/FreeSerifBold24pt7b.h>
+  #include <Fonts/FreeSerif9pt7b.h>
+  #define TFT_CS D8
+  #define TFT_RST D4
+  #define TFT_DC D3
+  #define TFT_SCLK D5
+  #define TFT_MOSI D7
+  #define BL D6 
+  #define FONT_SMALL 
+  #define FONT_LARGE
+  
+  Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST); // defines the comms object
+#elif LCD_22 == true
+  #include "TFT_22_ILI9225.h"
+  #include <../fonts/FreeSerifBold24pt7b.h>
+  #include <../fonts/FreeSerif9pt7b.h>
+  #define TFT_RST D1
+  #define TFT_RS  D2
+  #define TFT_CS  D0  // SS
+  #define TFT_SDI D3  // MOSI
+  #define TFT_CLK D4  // SCK
+  #define TFT_LED D5   // 0 if wired to +5V directly
+  TFT_22_ILI9225 tft = TFT_22_ILI9225(TFT_RST, TFT_RS, TFT_CS, TFT_SDI, TFT_CLK, TFT_LED);
+#endif
 
-#define TFT_CS D8
-#define TFT_RST D4
-#define TFT_DC D3
-#define TFT_SCLK D5
-#define TFT_MOSI D7
-#define BL D6 
+#if RTC_ENABLE == true
+  #include <RTClib.h>
+  RTC_DS3231 Clock;
+#endif
+
+#if WIFI_ENABLED == true 
+  #include <ESP8266WiFi.h>
+  #include <NTPClient.h>
+  #include <WiFiUdp.h>
+  unsigned int localPort = 2390;      // local port to listen for UDP packets
+  WiFiUDP ntpUDP;
+  NTPClient timeClient(ntpUDP);
+#endif
 
 
 #define  BLACK   0x0000
@@ -80,19 +116,21 @@
 #define WHITE   0xFFFF
 #define MINUTE_COL GREEN
 #define HOUR_COL MAGENTA
+#define FONT_BIG 1
+#define FONT_SMALL 0
 
 uint16_t FG_COLOR;
 uint16_t BG_COLOR;
-RTC_DS3231 Clock;
+
 bool Century=false;
 bool h12 = false;
 bool PM = false;
 
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST); // defines the comms object
 
 
-char ssid[] = "";  //  your network SSID (name)
-char pass[] = "";       // your network password
+
+char ssid[] = "PrettyFlyForAWifi";  //  your network SSID (name)
+char pass[] = "gy3UwuaJPcAv";       // your network password
 
 String dateStr;
 String lastDateStr;
@@ -116,10 +154,7 @@ int x = 64, y = 90, r = 50, sr, mr, hr,
 float a;  
 
 
-unsigned int localPort = 2390;      // local port to listen for UDP packets
- 
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
+
 
 const unsigned char landrover [] PROGMEM = {
   // 'lanbdrover, 128x160px
@@ -323,115 +358,134 @@ word ConvertRGB( byte R, byte G, byte B)
   return ( ((R & 0xF8) << 8) | ((G & 0xFC) << 3) | (B >> 3) );
 }
 
+void blankScreen(void){
+  #if LCD_18
+    tft.fillScreen(BG_COLOR);
+  #else
+    tft.clear();
+  #endif
+}
+
+void setBacklight(void){
+  #if LCD_18    
+    analogWrite(BL,analogRead(A0)/4);
+  #endif
+}
+
 
 
 void setup(void) { 
+  Serial.begin(115200); 
+  Serial.print("setup");
   FG_COLOR = 0xFFFF;
   BG_COLOR = ConvertRGB(0x03,0x36,0x05);
   sr = r;
   mr = r;
   hr = r-15;
-  tft.initR(INITR_BLACKTAB);      // Init ST7735S chip, black tab
- 
-  tft.fillScreen(BG_COLOR);
+
+  #if LCD_18
+    tft.initR(INITR_BLACKTAB);      // Init ST7735S chip, black tab
+    pinMode(BL, OUTPUT); 
+  #endif
+  #if LCD_22
+    tft.begin();
+  #endif
+  Serial.print("setup");
+  blankScreen();
   tft.drawBitmap(0, 0, landrover, 128, 160, FG_COLOR );
-
-  //try to connect to wifi for 5 seconds
-  /*
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, pass); 
-  Serial.begin(115200); 
-  int i = 0;
-  while (WiFi.status() != WL_CONNECTED && i < 10) {
-    delay(500);
-    Serial.print(".");
-    i++;
-  }
-  if (WiFi.status() == WL_CONNECTED){
-    //setTime  
-    setTime();    
-  }
-  */
-   if (!Clock.begin()) {
-    Serial.println("Couldn't find RTC");
-    while (1);
-  }
-
-  if (Clock.lostPower()) {
-    Serial.println("RTC lost power, lets set the time!");
-    // following line sets the RTC to the date & time this sketch was compiled
-    Clock.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    // This line sets the RTC with an explicit date & time, for example to set
-    // January 21, 2014 at 3am you would call:
-    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
-  }
   
-  tft.fillScreen(BG_COLOR);
-  //tft.drawCircle(64, 105, 50, FG_COLOR );
-  //tft.drawBitmap(88, 120, landythumb, 40, 40, FG_COLOR);
-  pinMode(BL, OUTPUT); 
- 
+  #if WIFI_ENABLED  
+    //try to connect to wifi for 5 seconds    
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, pass); 
+    
+    int i = 0;
+    while (WiFi.status() != WL_CONNECTED && i < 10) {
+      delay(500);
+      Serial.print(".");
+      i++;
+    }
+  #endif
+  #if RTC_ENABLED
+    if (!Clock.begin()) {
+      Serial.println("Couldn't find RTC");
+      while (1);
+    }
+    if (Clock.lostPower()) {
+      Serial.println("RTC lost power, lets set the time!");
+      // following line sets the RTC to the date & time this sketch was compiled
+      Clock.adjust(DateTime(F(__DATE__), F(__TIME__)));    
+    }
+  #endif
+  blankScreen();
   
 }
 
-void setTime(void){
-  timeClient.begin();
-  while(!timeClient.update()) {
-    timeClient.forceUpdate();
-  }
-  time_t rawtime = timeClient.getEpochTime();
-  struct tm * ti;
-  ti = localtime (&rawtime);
-
-  uint16_t year = ti->tm_year;
- 
-
-  uint8_t month = ti->tm_mon + 1;
-
-
-  uint8_t day = ti->tm_mday;
- 
-
-  uint8_t hour = ti->tm_hour;
-
-
-  minutes = ti->tm_min;  
- 
-
-  seconds = ti->tm_sec;
-
-  Clock.adjust(DateTime(year,month,day,hour,minutes,seconds));
+#if WIFI_ENABLED
+  void updateCurrentTimeFromNTP(){
+     timeClient.begin();
+    while(!timeClient.update()) {
+      timeClient.forceUpdate();
+    }
+    time_t rawtime = timeClient.getEpochTime();
+    struct tm * ti;
+    ti = localtime (&rawtime);
   
+    uint16_t year = ti->tm_year;
+   
+  
+    uint8_t month = ti->tm_mon + 1;
+  
+  
+    uint8_t day = ti->tm_mday;
+   
+  
+    uint8_t hour = ti->tm_hour;
+  
+  
+    minutes = ti->tm_min;  
+   
+  
+    seconds = ti->tm_sec;
+  }
+#endif
 
-}
+#if RTC_ENABLED
+  void updateCurrentTimeFromRTC(){
+     DateTime now = Clock.now();
+     Serial.print("Reading time \r\n"); 
+     uint16_t year = now.year();
+     String yearStr = String(year);
+  
+     uint8_t month = now.month();
+     String monthStr = month < 10 ? "0" + String(month) : String(month);
+  
+     uint8_t day = now.day();
+     String dayStr = day < 10 ? "0" + String(day) : String(day);
+  
+     uint8_t hour = now.hour();
+     hourAnalog = hour;
+     if (hourAnalog > 12)
+        hourAnalog = hourAnalog - 12;
+     String hoursStr = hour < 10 ? "0" + String(hour) : String(hour);
+  
+     minutes = now.minute();
+     String minutesStr = minutes < 10 ? "0" + String(minutes) : String(minutes);
+  
+     seconds = now.second();
+     String secondStr = seconds < 10 ? "0" + String(seconds) : String(seconds);
+  
+     timeStr = hoursStr + ":" + minutesStr;
+     dateStr = dayStr + "/" + monthStr;
+  }
+#endif
 
-void readTime(void){
-   DateTime now = Clock.now();
-   Serial.print("Reading time \r\n"); 
-   uint16_t year = now.year();
-   String yearStr = String(year);
-
-   uint8_t month = now.month();
-   String monthStr = month < 10 ? "0" + String(month) : String(month);
-
-   uint8_t day = now.day();
-   String dayStr = day < 10 ? "0" + String(day) : String(day);
-
-   uint8_t hour = now.hour();
-   hourAnalog = hour;
-   if (hourAnalog > 12)
-      hourAnalog = hourAnalog - 12;
-   String hoursStr = hour < 10 ? "0" + String(hour) : String(hour);
-
-   minutes = now.minute();
-   String minutesStr = minutes < 10 ? "0" + String(minutes) : String(minutes);
-
-   seconds = now.second();
-   String secondStr = seconds < 10 ? "0" + String(seconds) : String(seconds);
-
-   timeStr = hoursStr + ":" + minutesStr;
-   dateStr = dayStr + "/" + monthStr;
-   Serial.print(timeStr + " " +dateStr +"\r\n");
+void updateCurrentTime(void){
+  #if RTC_ENABLED
+    updateCurrentTimeFromRTC();
+  #elif WIFIENABLED
+    updateCurrentTimeFromNTP();
+  #endif
 }
 
 void drawSegment(int x, int y, int r1, int r2, float a, int col)
@@ -450,7 +504,7 @@ void drawSegment(int x, int y, int r1, int r2, float a, int col)
 }
 
 
-void drawAnalogueTime()
+void drawAnalogueTime(void)
 {
   
   
@@ -470,35 +524,47 @@ void drawAnalogueTime()
 
 }
 
+void putTextOnLCD(int cursorX, int cursorY, int font_size, String text){
+  #if LCD_18
+    if (font_size == FONT_BIG){
+      tft.setFont(&FreeSerifBold24pt7b)
+    } else {
+      tft.setFont(&FreeSerif9pt7b); 
+    }
+    tft.setCursor(cursorX,cursorY);
+    tft.print(text); 
+  #endif
 
-void updateTime(){
-  Serial.print("updateTime \r\n");
-  tft.fillScreen(BG_COLOR);
-  tft.setFont(&FreeSerifBold24pt7b);    
-  tft.setCursor(8,40);
-  tft.print(timeStr);  
-  tft.drawXBitmap(58, 120, landythumb, 70, 40, FG_COLOR);
-  drawAnalogueTime();
-  tft.setFont(&FreeSerif9pt7b);    
-  tft.setCursor(2,155);
-  tft.print(dateStr);
-    
+  #if LCD_22
+     if (font_size == FONT_BIG){
+        tft.setGFXFont(&FreeSerifBold24pt7b);        
+      } else {
+         tft.setGFXFont(&FreeSerif9pt7b);
+      }
+       tft.drawGFXText(cursorX, cursorY, text, FG_COLOR);  
+  #endif
 }
 
+void drawDigitalTime(void){
+  blankScreen();
+  putTextOnLCD(8,40,FONT_BIG,timeStr);
+  putTextOnLCD(2,155,FONT_SMALL,dateStr);
+}
 
-void updateDisplay(){
+void drawDisplay(void){
   Serial.print("updateDisplay");
   if (timeStr != lastTimeStr){
-    updateTime();
+    drawDigitalTime();
+    drawAnalogueTime();
     lastTimeStr = timeStr;
   }
 }
 
 
 void loop(void) {
-  analogWrite(BL,analogRead(A0)/4);
-  readTime();
-  updateDisplay();
+  setBacklight();
+  //readTime();
+  drawDisplay();
   delay(1000);
   
 }
